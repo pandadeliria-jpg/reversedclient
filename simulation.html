@@ -369,8 +369,6 @@
                 , (t, r, n) => {
                     t = l.decode(a().subarray(t, t + r)),
                     n = e[n];
-                    // Fix for current server fetch
-                    t = t.replace(".uvwx.xyz:2222", "-c.uvwx.xyz:8443/2222");
                     if (!t.includes("signature")) {
                         fetch(t).then(e => e.json()).then(e => {
                         n.push(e),
@@ -1310,7 +1308,8 @@
                     window.send_packet.push(value);
                   }
                 }, (index, slice) => {
-                    if (u8[index] == 84) {
+                    // Optional analytics blocking; keep disabled by default so base client behavior is preserved.
+                    if (window.block_analytics === true && u8[index] == 84) {
                         window.analytics_data = JSON.parse(new TextDecoder().decode(u8.slice(index + 4, index + slice)));
                         window.user_id = analytics_data.storage.id;
                         let new_message = "This blocks analytics packet data.";
@@ -1321,29 +1320,38 @@
                         }
                         new_message = new TextEncoder().encode(new_message);
                         u8.set(new_message, index + 4);
-                        return 0;
-                    };
+                    }
+
                     let new_packet = window.packet_queue.pop();
                     if (new_packet) {
-                        u8.set(new_packet, 0);
-                        return new_packet.byteLength; 
-                    };
-                    return 0;
+                        u8.set(new_packet, index);
+                        return new_packet.byteLength;
+                    }
+
+                    // Pass the original packet through untouched when no custom packet is queued.
+                    return slice;
                 }, 
-                // Created this import to allow for memory modification of the incoming packets. This is COMPLETELY EXPERIMENTAL/TEST CODE that I fooled around with. Not really too useful.
+                // Created this import to allow for memory modification of the incoming packets.
+                // Used here for a client-side FOV slider by scaling the incoming update packet fov value.
                 () => {
-                    // let raw_packet = window.u8.slice(window.message_packet_address, window.message_packet_address + window.message_packet.length);
-                    // Player status change
-                    /*if (raw_packet[0] == 80) {
-                        for (let index = 4; index < raw_packet.length; index += 1) {
-                            if (raw_packet[index - 1] == 1 && raw_packet[index] == 192) window.u8[window.message_packet_address + index - 1] = 7;  
-                        }         
-                    }*/
-                    // FOV cheat
-                    /*if (raw_packet[0] == 117 && fov_factor !== 1) {
-                        let fov = new Float32Array(raw_packet.slice(12, 16).buffer)[0]
-                        if (fov > 1300) window.u8.set(new Uint8Array(new Float32Array([fov * fov_factor]).buffer), window.message_packet_address + 12);
-                    }*/
+                    if (window.fov_factor === 1) return;
+                    if (!window.message_packet || window.message_packet.length < 16) return;
+
+                    let raw_packet = window.u8.slice(
+                        window.message_packet_address,
+                        window.message_packet_address + window.message_packet.length
+                    );
+
+                    // Incoming update packet header.
+                    if (raw_packet[0] !== 117) return;
+
+                    let current_fov = new Float32Array(raw_packet.slice(12, 16).buffer)[0];
+                    if (!Number.isFinite(current_fov)) return;
+                    if (current_fov < 100 || current_fov > 50000) return;
+
+                    let scaled_fov = current_fov * window.fov_factor;
+                    let updated_fov = new Uint8Array(new Float32Array([scaled_fov]).buffer);
+                    window.u8.set(updated_fov, window.message_packet_address + 12);
                 }
                 ]]
                   , b = fetch("./wasm/arras.wasm")
@@ -1951,7 +1959,7 @@
                     construct_command_packet: function construct_command_packet(action) {
                         return new Uint8Array([116, action]);
                     },
-                    construct_control_acket: function construct_control_packet(x_comp, y_comp, direction) {
+                    construct_control_packet: function construct_control_packet(x_comp, y_comp, direction) {
                         return new Uint8Array([67, x_comp, y_comp, direction]);
                     }
                 };
@@ -1963,18 +1971,45 @@
                     window.close();
                 };
 
-                // Just some fov scrolling stuff
-                /*window.fov_factor = 1;
-                let fov_scroll_factor = 0.2;
+                window.fov_factor = 1;
+                window.block_analytics = false;
 
-                document.addEventListener("wheel", function (e) {
-                if (e.deltaY < 0) {
-                        fov_factor -= fov_scroll_factor;
-                        if (fov_factor <= 0) fov_factor = 0.1;
-                    } else {
-                        fov_factor += fov_scroll_factor;
-                    }
-                });*/
+                function create_fov_slider() {
+                    let wrapper = document.createElement("div");
+                    wrapper.style.position = "fixed";
+                    wrapper.style.top = "12px";
+                    wrapper.style.right = "12px";
+                    wrapper.style.zIndex = "9999";
+                    wrapper.style.background = "rgba(0, 0, 0, 0.65)";
+                    wrapper.style.color = "#fff";
+                    wrapper.style.padding = "8px 10px";
+                    wrapper.style.borderRadius = "6px";
+                    wrapper.style.font = "12px Ubuntu, sans-serif";
+                    wrapper.style.pointerEvents = "auto";
+
+                    let label = document.createElement("div");
+                    label.textContent = "FOV: 1.00x";
+                    label.style.marginBottom = "6px";
+
+                    let slider = document.createElement("input");
+                    slider.type = "range";
+                    slider.min = "0.50";
+                    slider.max = "3.00";
+                    slider.step = "0.05";
+                    slider.value = "1.00";
+                    slider.style.width = "180px";
+
+                    slider.addEventListener("input", () => {
+                        window.fov_factor = Number(slider.value);
+                        label.textContent = `FOV: ${window.fov_factor.toFixed(2)}x`;
+                    });
+
+                    wrapper.appendChild(label);
+                    wrapper.appendChild(slider);
+                    document.body.appendChild(wrapper);
+                }
+
+                create_fov_slider();
             }
             )()
         </script>
