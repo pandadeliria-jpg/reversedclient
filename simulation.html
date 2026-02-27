@@ -1352,6 +1352,17 @@
                     let scaled_fov = current_fov * window.fov_factor;
                     let updated_fov = new Uint8Array(new Float32Array([scaled_fov]).buffer);
                     window.u8.set(updated_fov, window.message_packet_address + 12);
+                // We use this for a client-side FOV slider by scaling the incoming fov value.
+                () => {
+                    if (window.fov_factor === 1) return;
+                    if (!window.message_packet || window.message_packet.length < 16) return;
+                    if (window.u8[window.message_packet_address] !== 117) return;
+
+                    let current_fov = new DataView(window.u8.buffer).getFloat32(window.message_packet_address + 12, true);
+                    if (current_fov > 1300) {
+                        let updated_fov = new Uint8Array(new Float32Array([current_fov * window.fov_factor]).buffer);
+                        window.u8.set(updated_fov, window.message_packet_address + 12);
+                    }
                 }
                 ]]
                   , b = fetch("./wasm/arras.wasm")
